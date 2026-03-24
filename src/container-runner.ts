@@ -199,6 +199,18 @@ function buildVolumeMounts(
     readonly: false,
   });
 
+  // Google Workspace CLI credentials (read-only — gws decrypts in memory)
+  // Stored in data/gws/ (gitignored) — no host installation required
+  const gwsConfigDir = path.join(DATA_DIR, 'gws');
+  if (fs.existsSync(gwsConfigDir)) {
+    mounts.push({
+      hostPath: gwsConfigDir,
+      containerPath: '/home/node/.config/gws',
+      readonly: true,
+    });
+  }
+
+
   // Additional mounts validated against external allowlist (tamper-proof from containers)
   if (group.containerConfig?.additionalMounts) {
     const validatedMounts = validateAdditionalMounts(
@@ -220,6 +232,9 @@ function buildContainerArgs(
 
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
+
+  // Force file-based keyring for gws so it can decrypt credentials without OS keychain
+  args.push('-e', 'GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND=file');
 
   // Route API traffic through the credential proxy (containers never see real secrets)
   args.push(
@@ -507,11 +522,7 @@ export async function runContainerAgent(
         // Full input is only included at verbose level to avoid
         // persisting user conversation content on every non-zero exit.
         if (isVerbose) {
-          logLines.push(
-            `=== Input ===`,
-            JSON.stringify(input, null, 2),
-            ``,
-          );
+          logLines.push(`=== Input ===`, JSON.stringify(input, null, 2), ``);
         } else {
           logLines.push(
             `=== Input Summary ===`,
